@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCloseEvent, QIcon
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QCloseEvent, QShowEvent
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -18,7 +18,15 @@ from PySide6.QtWidgets import (
 
 from app import strings as S
 from app.services import AppService, MAX_TEAM_SIZE
-from app.widgets.flow_grid import FlowGridWidget
+from app.widgets.flow_grid import (
+    GRID_COLUMNS,
+    GRID_MARGIN,
+    GRID_SPACING,
+    FlowGridWidget,
+    fixed_card_size,
+    main_window_fixed_size,
+    scroll_viewport_height,
+)
 from app.widgets.pokemon_card import PokemonCard
 from app.windows.create_pokemon_window import CreatePokemonWindow
 from app.windows.first_record_tip import FirstRecordTipDialog
@@ -43,8 +51,7 @@ class MainWindow(QWidget):
         self._edit_record_id: Optional[int] = None
 
         self.setWindowTitle(S.MAIN_TITLE)
-        self.setMinimumSize(720, 520)
-        self.resize(960, 640)
+        self._layout_applied = False
         self._build_ui()
         self.refresh_cards()
 
@@ -60,13 +67,16 @@ class MainWindow(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._grid_host = FlowGridWidget()
-        scroll.setWidget(self._grid_host)
-        root.addWidget(scroll, 1)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._grid_host = FlowGridWidget(fixed_columns=GRID_COLUMNS)
+        self._scroll.setWidget(self._grid_host)
+        self._grid_host.installEventFilter(self)
+        self._scroll.viewport().installEventFilter(self)
+        root.addWidget(self._scroll, 1)
 
         footer = QWidget()
         footer.setObjectName("mainFooter")
@@ -133,6 +143,44 @@ class MainWindow(QWidget):
 
         root.addWidget(footer)
 
+    def _lock_window_layout(self) -> None:
+        """锁定主界面：每行 5 张卡片，可视区域 4 行，超出部分滚轮滚动。"""
+        card = fixed_card_size()
+        self._scroll.setFixedHeight(scroll_viewport_height(card.height()))
+        size = main_window_fixed_size(card.width(), card.height())
+        self.setFixedSize(size)
+        min_w = (
+            GRID_COLUMNS * card.width()
+            + (GRID_COLUMNS - 1) * GRID_SPACING
+            + 2 * GRID_MARGIN
+        )
+        self._grid_host.setMinimumWidth(min_w)
+        self._grid_host.setFixedWidth(min_w)
+        self._grid_host.relayout()
+        self.refresh_cards()
+
+    def _apply_window_layout(self) -> None:
+        if not self._layout_applied:
+            self._lock_window_layout()
+            self._layout_applied = True
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._apply_window_layout()
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            event.type() == QEvent.Type.Wheel
+            and self._scroll is not None
+            and watched in (self._grid_host, self._scroll.viewport())
+        ):
+            bar = self._scroll.verticalScrollBar()
+            delta = event.angleDelta().y()
+            bar.setValue(bar.value() - delta // 4)
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
     def refresh_cards(self) -> None:
         for card in list(self._cards.values()):
             try:
@@ -149,6 +197,7 @@ class MainWindow(QWidget):
             card = PokemonCard(
                 pokemon.id,
                 pokemon.nickname,
+                pokemon.species,
                 pokemon.is_skill_type,
                 self._grid_host,
             )

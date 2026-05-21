@@ -1,40 +1,83 @@
-"""Responsive left-to-right, top-to-bottom card grid from top-left."""
+"""Fixed-column card grid (5 per row) with vertical scroll for extra rows."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QGridLayout, QSizePolicy, QWidget
 
+GRID_COLUMNS = 5
+GRID_VISIBLE_ROWS = 4
+GRID_MARGIN = 12
+GRID_SPACING = 14
+GRID_ASPECT = 16 / 9
+FOOTER_HEIGHT = 56
+GRID_INNER_WIDTH = 920
+
+
+def fixed_card_size() -> QSize:
+    """Card size derived from locked grid width (stable before first paint)."""
+    usable = GRID_INNER_WIDTH - 2 * GRID_MARGIN
+    card_w = (usable - (GRID_COLUMNS - 1) * GRID_SPACING) // GRID_COLUMNS
+    card_h = max(1, int(card_w / GRID_ASPECT))
+    return QSize(card_w, card_h)
+
+
+def card_size_for_viewport(viewport_width: int, cols: int = GRID_COLUMNS) -> QSize:
+    usable = max(1, viewport_width - 2 * GRID_MARGIN)
+    card_w = (usable - (cols - 1) * GRID_SPACING) // cols
+    card_h = max(1, int(card_w / GRID_ASPECT))
+    return QSize(card_w, card_h)
+
+
+def scroll_viewport_height(card_h: int, visible_rows: int = GRID_VISIBLE_ROWS) -> int:
+    return (
+        2 * GRID_MARGIN
+        + visible_rows * card_h
+        + max(0, visible_rows - 1) * GRID_SPACING
+    )
+
+
+def main_window_fixed_size(card_w: int, card_h: int) -> QSize:
+    grid_w = (
+        GRID_COLUMNS * card_w
+        + (GRID_COLUMNS - 1) * GRID_SPACING
+        + 2 * GRID_MARGIN
+    )
+    grid_h = scroll_viewport_height(card_h)
+    return QSize(grid_w, grid_h + FOOTER_HEIGHT)
+
 
 class FlowGridWidget(QWidget):
-    """Container that reflows child widgets in a responsive grid (top-left aligned)."""
+    """Top-left grid with a fixed number of columns per row."""
 
     def __init__(
         self,
         parent: QWidget | None = None,
-        margin: int = 12,
-        spacing: int = 14,
-        aspect_ratio: float = 16 / 9,
-        min_card_width: int = 160,
+        fixed_columns: int = GRID_COLUMNS,
+        lock_card_size: bool = True,
     ) -> None:
         super().__init__(parent)
-        self._margin = margin
-        self._spacing = spacing
-        self._aspect = aspect_ratio
-        self._min_card_width = min_card_width
+        self._fixed_columns = fixed_columns
+        self._lock_card_size = lock_card_size
         self._reflowing = False
         self._card_widgets: list[QWidget] = []
+        self._last_card_size = fixed_card_size()
 
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(margin, margin, margin, margin)
-        self._grid.setHorizontalSpacing(spacing)
-        self._grid.setVerticalSpacing(spacing)
+        self._grid.setContentsMargins(GRID_MARGIN, GRID_MARGIN, GRID_MARGIN, GRID_MARGIN)
+        self._grid.setHorizontalSpacing(GRID_SPACING)
+        self._grid.setVerticalSpacing(GRID_SPACING)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
+    def card_size(self) -> QSize:
+        return QSize(self._last_card_size)
+
+    def relayout(self) -> None:
+        self._reflow()
+
     def rebuild_cards(self, widgets: list[QWidget]) -> None:
-        """Replace all cards and lay out once (avoids partial reflow glitches)."""
         for w in self._card_widgets:
             if w.parent() is self:
                 self._grid.removeWidget(w)
@@ -47,12 +90,11 @@ class FlowGridWidget(QWidget):
             self._card_widgets.append(widget)
         self._reflow()
 
-    def _card_size(self, width: int) -> QSize:
-        usable = max(1, width - 2 * self._margin)
-        cols = max(1, usable // (self._min_card_width + self._spacing))
-        card_w = (usable - (cols - 1) * self._spacing) // cols
-        card_h = max(1, int(card_w / self._aspect))
-        return QSize(card_w, card_h)
+    def _resolve_card_size(self) -> QSize:
+        if self._lock_card_size:
+            return fixed_card_size()
+        width = max(self.width(), GRID_INNER_WIDTH)
+        return card_size_for_viewport(width, self._fixed_columns)
 
     def _reflow(self) -> None:
         if self._reflowing:
@@ -70,17 +112,12 @@ class FlowGridWidget(QWidget):
                 self.setMinimumHeight(120)
                 return
 
-            width = max(self.width(), self._min_card_width + 2 * self._margin)
-            card_size = self._card_size(width)
-            cols = max(
-                1,
-                (width - 2 * self._margin + self._spacing)
-                // (card_size.width() + self._spacing),
-            )
+            self._last_card_size = self._resolve_card_size()
+            cols = self._fixed_columns
             align = Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
 
             for i, child in enumerate(children):
-                child.setFixedSize(card_size)
+                child.setFixedSize(self._last_card_size)
                 child.show()
                 row = i // cols
                 col = i % cols
@@ -88,11 +125,16 @@ class FlowGridWidget(QWidget):
 
             rows = (len(children) + cols - 1) // cols
             total_h = (
-                2 * self._margin
-                + rows * card_size.height()
-                + max(0, rows - 1) * self._spacing
+                2 * GRID_MARGIN
+                + rows * self._last_card_size.height()
+                + max(0, rows - 1) * GRID_SPACING
             )
             self.setMinimumHeight(total_h)
+            self.setMinimumWidth(
+                cols * self._last_card_size.width()
+                + (cols - 1) * GRID_SPACING
+                + 2 * GRID_MARGIN
+            )
             self._grid.setRowStretch(rows, 1)
             self.updateGeometry()
         finally:
@@ -100,4 +142,5 @@ class FlowGridWidget(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
-        self._reflow()
+        if not self._lock_card_size:
+            self._reflow()

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import strings as S
+from app.widgets.table_buttons import make_history_actions, make_info_button
 from app.widgets.table_items import readonly_item
 from app.services import AppService, TimePoint
 from app.windows.pokemon_detail_window import PokemonDetailWindow
@@ -114,10 +115,12 @@ class ViewRecordsWindow(QDialog):
             1, QHeaderView.ResizeMode.Stretch
         )
         self._history_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
+            2, QHeaderView.ResizeMode.Fixed
         )
+        self._history_table.setColumnWidth(2, 140)
         self._history_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._history_table.verticalHeader().setDefaultSectionSize(52)
         layout.addWidget(self._history_table)
         return page
 
@@ -125,7 +128,7 @@ class ViewRecordsWindow(QDialog):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.addWidget(self._make_span_selector(self._stats_days, self._set_stats_days))
-        self._stats_table = QTableWidget(0, 10)
+        self._stats_table = QTableWidget(0, 6)
         self._stats_table.setHorizontalHeaderLabels(
             [
                 S.COL_NICKNAME,
@@ -133,13 +136,19 @@ class ViewRecordsWindow(QDialog):
                 S.COL_SKILL,
                 S.COL_TOTAL,
                 S.COL_AVG_DAILY,
-                "",
+                S.COL_INFO,
             ]
         )
-        self._stats_table.horizontalHeader().setSectionResizeMode(
-            5, QHeaderView.ResizeMode.ResizeToContents
-        )
+        header = self._stats_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self._stats_table.setColumnWidth(5, 52)
         self._stats_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._stats_table.verticalHeader().setDefaultSectionSize(40)
         layout.addWidget(self._stats_table)
         return page
 
@@ -260,27 +269,16 @@ class ViewRecordsWindow(QDialog):
             )
             self._history_table.setItem(row, 1, readonly_item(line))
 
-            actions = QWidget()
-            act_layout = QHBoxLayout(actions)
-            act_layout.setContentsMargins(4, 2, 4, 2)
-            clock_btn = QToolButton()
-            clock_btn.setText("🕐")
-            clock_btn.setToolTip(S.TIP_EDIT_TIME)
-            clock_btn.clicked.connect(
-                lambda _=False, rid=rec.id, t=rec.trigger_time: self._edit_time(rid, t)
+            actions = make_history_actions(
+                on_edit_time=lambda _=False, rid=rec.id, t=rec.trigger_time: self._edit_time(
+                    rid, t
+                ),
+                on_edit_team=lambda _=False, rid=rec.id: self._edit_team(rid),
+                on_delete=lambda _=False, rid=rec.id: self._delete_record(rid),
+                tip_edit_time=S.TIP_EDIT_TIME,
+                tip_edit_team=S.TIP_EDIT_TEAM,
+                tip_delete=S.TIP_DELETE_RECORD,
             )
-            cat_btn = QToolButton()
-            cat_btn.setText("🐱")
-            cat_btn.setToolTip(S.TIP_EDIT_TEAM)
-            cat_btn.clicked.connect(lambda _=False, rid=rec.id: self._edit_team(rid))
-            del_btn = QToolButton()
-            del_btn.setText("✕")
-            del_btn.setStyleSheet("color: #d32f2f; font-weight: bold;")
-            del_btn.setToolTip(S.TIP_DELETE_RECORD)
-            del_btn.clicked.connect(lambda _=False, rid=rec.id: self._delete_record(rid))
-            act_layout.addWidget(clock_btn)
-            act_layout.addWidget(cat_btn)
-            act_layout.addWidget(del_btn)
             self._history_table.setCellWidget(row, 2, actions)
 
     def _refresh_stats(self) -> None:
@@ -298,13 +296,10 @@ class ViewRecordsWindow(QDialog):
             self._stats_table.setItem(
                 i, 4, readonly_item(f"{r.avg_daily_triggers:.1f}")
             )
-            info_btn = QToolButton()
-            info_btn.setText("i")
-            info_btn.setObjectName("infoButton")
-            info_btn.clicked.connect(
+            info_cell = make_info_button(
                 lambda _=False, pid=r.pokemon_id: self._open_pokemon(pid)
             )
-            self._stats_table.setCellWidget(i, 5, info_btn)
+            self._stats_table.setCellWidget(i, 5, info_cell)
 
     def _refresh_chart(self) -> None:
         if self._chart_pokemon_id is None:
@@ -331,10 +326,29 @@ class ViewRecordsWindow(QDialog):
 
         s = series[0]
         label = self._chart_pokemon_combo.currentText() or s.nickname
-        ax.plot(x_positions, s.values, marker="o", linewidth=1.5, label=label)
+        period_colors = ("#2e7d32", "#1565c0", "#c62828")  # 早/午/晚：绿/蓝/红
+        marker_colors = [period_colors[p.period_index] for p in points]
+
+        ax.plot(
+            x_positions,
+            s.values,
+            color="#000000",
+            linewidth=1.5,
+            label=label,
+            zorder=1,
+        )
+        ax.scatter(
+            x_positions,
+            s.values,
+            c=marker_colors,
+            s=42,
+            zorder=2,
+            edgecolors="#ffffff",
+            linewidths=0.6,
+        )
 
         ax.set_xticks(x_positions)
-        ax.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=7)
+        ax.set_xticklabels(x_labels, rotation=0, ha="center", fontsize=7)
         ylabel = (
             S.CHART_Y_CUMULATIVE
             if self._chart_mode == "cumulative"
@@ -354,9 +368,9 @@ class ViewRecordsWindow(QDialog):
         labels: list[str] = []
         for p in points:
             if p.period_index == 0:
-                labels.append(p.date.strftime("%m/%d") + "\n" + p.label)
+                labels.append(p.date.strftime("%m/%d"))
             else:
-                labels.append(p.label)
+                labels.append("")
         return labels
 
     def _edit_time(self, record_id: int, current: datetime) -> None:

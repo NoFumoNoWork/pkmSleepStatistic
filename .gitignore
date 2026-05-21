@@ -10,3 +10,4 @@ data/
 venv/
 .env
 *.db
+flaticon.ico

@@ -134,17 +134,34 @@ QLabel#panelTitle {
 
 QToolButton#infoButton {
     border: 1px solid #c8d0e0;
-    border-radius: 12px;
+    border-radius: 11px;
     background: #f5f7fc;
-    min-width: 24px;
-    max-width: 24px;
-    min-height: 24px;
-    max-height: 24px;
+    font-size: 9pt;
     font-weight: bold;
     color: #4f6ef7;
+    padding: 0;
 }
 QToolButton#infoButton:hover {
     background: #e8f0fe;
+}
+
+QToolButton#tableActionButton {
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font-family: "Segoe UI Emoji", "Segoe UI Symbol", "Segoe UI", sans-serif;
+    font-size: 17pt;
+    padding: 4px;
+}
+QToolButton#tableActionButton:hover {
+    background: rgba(79, 110, 247, 0.12);
+}
+QToolButton#tableActionButton[danger="true"] {
+    color: #d32f2f;
+    font-weight: bold;
+}
+QToolButton#tableActionButton[danger="true"]:hover {
+    background: rgba(211, 47, 47, 0.1);
 }
 """
 

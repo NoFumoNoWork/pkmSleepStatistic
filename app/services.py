@@ -44,11 +44,16 @@ class AppService:
     def dismiss_tray_minimize_tip(self) -> None:
         self.db.set_show_tray_minimize_tip(False)
 
-    def validate_name(self, text: str) -> tuple[bool, str]:
+    def validate_nickname(self, text: str) -> tuple[bool, str]:
         if not text.strip():
             return False, S.ERR_EMPTY
         if not is_within_width_limit(text):
             return False, S.ERR_WIDTH
+        return True, ""
+
+    def validate_species(self, text: str) -> tuple[bool, str]:
+        if not text.strip():
+            return False, S.ERR_EMPTY
         return True, ""
 
     def create_pokemon(
@@ -58,10 +63,10 @@ class AppService:
         is_skill_type: bool,
         expected_daily_triggers: Optional[float],
     ) -> Pokemon:
-        ok, msg = self.validate_name(species)
+        ok, msg = self.validate_species(species)
         if not ok:
             raise ValueError(S.ERR_SPECIES.format(msg=msg))
-        ok, msg = self.validate_name(nickname)
+        ok, msg = self.validate_nickname(nickname)
         if not ok:
             raise ValueError(S.ERR_NICKNAME.format(msg=msg))
         if expected_daily_triggers is not None:
@@ -81,10 +86,10 @@ class AppService:
         is_skill_type: bool,
         expected_daily_triggers: Optional[float],
     ) -> Pokemon:
-        ok, msg = self.validate_name(species)
+        ok, msg = self.validate_species(species)
         if not ok:
             raise ValueError(S.ERR_SPECIES.format(msg=msg))
-        ok, msg = self.validate_name(nickname)
+        ok, msg = self.validate_nickname(nickname)
         if not ok:
             raise ValueError(S.ERR_NICKNAME.format(msg=msg))
         if expected_daily_triggers is not None:

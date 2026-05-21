@@ -87,6 +87,7 @@ class PokemonSleepApp:
 
     def show_main_window(self) -> None:
         self._main.show()
+        self._main._apply_window_layout()
         self._main.raise_()
         self._main.activateWindow()
 
